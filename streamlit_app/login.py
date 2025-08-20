@@ -6,19 +6,38 @@ from datetime import datetime
 from audio_recorder_streamlit import audio_recorder
 from io import BytesIO
 import wave, contextlib
+from dotenv import load_dotenv
+from supabase import create_client
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from supabase import create_client
-from config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_SERVICE_ROLE_KEY
 from database.db_utils import db_manager
 
-# Clients
+# Load .env if running locally
+load_dotenv()
+
+def get_secret(key: str, default=None):
+    """Try to load from os.environ first, then st.secrets if available."""
+    if os.getenv(key):
+        return os.getenv(key)
+    try:
+        return st.secrets[key]
+    except Exception:
+        return default
+
+# First try environment variables, else use st.secrets (for Streamlit Cloud)
+SUPABASE_URL = os.getenv("SUPABASE_URL") or get_secret["SUPABASE_URL"]
+SUPABASE_KEY = os.getenv("SUPABASE_KEY") or get_secret["SUPABASE_KEY"]
+SUPABASE_SERVICE_ROLE_KEY = (
+    os.getenv("SUPABASE_SERVICE_ROLE_KEY") or get_secret("SUPABASE_SERVICE_ROLE_KEY")
+)
+
+# Initialize Supabase clients
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
-admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)  # server-side admin checks
+admin_client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 # Use your bucket; override with .env SUPABASE_BUCKET if needed
-BUCKET_NAME = os.getenv("SUPABASE_BUCKET", "gita-guru")
+BUCKET_NAME = os.getenv("SUPABASE_BUCKET") or get_secret("SUPABASE_BUCKET", "gita-guru")
 
 # Page configuration
 st.set_page_config(
