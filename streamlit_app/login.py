@@ -236,124 +236,154 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # Auth container
+if "active_tab" not in st.session_state:
+    st.session_state.active_tab = "signin"
+
+# Auth container
 with st.container():
     st.markdown('<div class="auth-container">', unsafe_allow_html=True)
-    
-    # Tab selection
+
+    # Tab buttons
     col1, col2 = st.columns(2)
+
     with col1:
-        signin_selected = st.button("Sign In", key="signin_tab", use_container_width=True)
+        if st.button("🔑 Sign In", use_container_width=True, 
+                     type="primary" if st.session_state.active_tab == "signin" else "secondary"):
+            st.session_state.active_tab = "signin"
+            st.rerun()
+
     with col2:
-        signup_selected = st.button("Sign Up", key="signup_tab", use_container_width=True)
-    
-    # Default to sign in if no selection
-    if not signin_selected and not signup_selected:
-        signin_selected = True
-    
-    # ----------------- SIGN IN -----------------
-    if signin_selected:
-        st.markdown("### Welcome Back 🙏")
+        if st.button("✨ Sign Up", use_container_width=True,
+                     type="primary" if st.session_state.active_tab == "signup" else "secondary"):
+            st.session_state.active_tab = "signup"
+            st.rerun()
+
+    st.markdown("---")
+
+    # SIGN IN TAB
+    if st.session_state.active_tab == "signin":
+        st.markdown("### Welcome Back! 🙏")
         st.markdown("Sign in to continue your spiritual journey")
-        
-        with st.form("signin_form"):
-            email = st.text_input("📧 Email Address", placeholder="Enter your email")
+
+        with st.form("signin_form", clear_on_submit=True):
+            email = st.text_input("📧 Email", placeholder="Enter your email address")
             password = st.text_input("🔒 Password", type="password", placeholder="Enter your password")
-            submit = st.form_submit_button("🚀 Sign In", use_container_width=True)
+            signin_button = st.form_submit_button("🚀 Sign In", use_container_width=True)
 
-        if submit:
+        if signin_button:
             if not email or not password:
-                st.markdown('<div class="error-message">Please fill in all fields</div>', unsafe_allow_html=True)
+                st.markdown('<div class="error-message">❌ Please fill in all fields</div>', unsafe_allow_html=True)
             else:
                 try:
-                    auth_response = supabase.auth.sign_in_with_password({"email": email, "password": password})
+                    # Clear any existing sessions
+                    try:
+                        supabase.auth.sign_out()
+                    except:
+                        pass
 
-                    if auth_response and getattr(auth_response, "user", None):
-                        user_obj = auth_response.user
-                        user_id = user_obj.id
+                    # Attempt authentication
+                    response = supabase.auth.sign_in_with_password({
+                        "email": email,
+                        "password": password
+                    })
 
-                        # Use admin client to check users table (bypass RLS) so existing users are detected reliably
-                        try:
-                            res = admin_client.table("users").select("*").eq("id", user_id).execute()
-                            existing = res.data[0] if res.data else None
+                    if response and response.user:
+                        user_id = response.user.id
+                        user_email = response.user.email
 
-                            if existing:
-                                st.markdown('<div class="success-message">✅ Sign in successful — redirecting...</div>', unsafe_allow_html=True)
-                                st.session_state["user"] = {"id": existing["id"], "email": existing["email"], "name": existing["name"]}
-                                st.switch_page("pages/user_portal.py")
-                                st.rerun()
-                            else:
-                                # Try to create user profile if it doesn't exist
-                                try:
-                                    created = db_manager.create_user_if_not_exists(user_id=user_id, name=user_obj.email, email=user_obj.email)
-                                    if created:
-                                        st.markdown('<div class="success-message">✅ Profile created and sign in successful — redirecting...</div>', unsafe_allow_html=True)
-                                        st.session_state["user"] = {"id": created["id"], "email": created["email"], "name": created["name"]}
-                                        st.switch_page("pages/user_portal.py")
-                                        st.rerun()
-                                    else:
-                                        st.markdown('<div class="warning-message">⚠️ Could not create user profile. Please contact support.</div>', unsafe_allow_html=True)
-                                except Exception as create_error:
-                                    st.markdown(f'<div class="error-message">❌ Profile creation failed: {str(create_error)}</div>', unsafe_allow_html=True)
-                        except Exception as db_error:
-                            st.markdown(f'<div class="error-message">❌ Database error: {str(db_error)}</div>', unsafe_allow_html=True)
-                    else:
-                        st.markdown('<div class="error-message">❌ Sign in failed. Check your credentials.</div>', unsafe_allow_html=True)
-                except Exception as e:
-                    error_msg = str(e)
-                    if "Invalid login credentials" in error_msg:
-                        st.markdown('<div class="error-message">❌ Invalid email or password. Please check your credentials.</div>', unsafe_allow_html=True)
-                    elif "Email not confirmed" in error_msg:
-                        st.markdown('<div class="warning-message">📧 Please confirm your email address before signing in.</div>', unsafe_allow_html=True)
-                    else:
-                        st.markdown(f'<div class="error-message">❌ Sign in error: {error_msg}</div>', unsafe_allow_html=True)
+                        # Get or create user profile
+                        user_profile = db_manager.get_user_by_id(user_id)
 
-    # ----------------- SIGN UP -----------------
-    else:
-        st.markdown("### Join the Journey 🌟")
-        st.markdown("Create your account to begin learning")
-        
-        with st.form("signup_form"):
-            name = st.text_input("👤 Full Name", placeholder="Enter your full name")
-            email = st.text_input("📧 Email Address", placeholder="Enter your email")
-            password = st.text_input("🔒 Password", type="password", placeholder="Create a password")
-            register = st.form_submit_button("✨ Create Account", use_container_width=True)
+                        if not user_profile:
+                            # Create user profile if it doesn't exist
+                            user_name = user_email.split('@')[0].title()  # Use email prefix as name
+                            user_profile = db_manager.create_user_if_not_exists(
+                                user_id=user_id,
+                                name=user_name,
+                                email=user_email
+                            )
 
-        if register:
-            if not name or not email or not password:
-                st.markdown('<div class="error-message">Please fill in all fields</div>', unsafe_allow_html=True)
-            else:
-                try:
-                    # Create auth user
-                    auth_response = supabase.auth.sign_up({"email": email, "password": password})
-
-                    if auth_response and getattr(auth_response, "user", None):
-                        user_id = auth_response.user.id
-                        
-                        # Check if email confirmation is required
-                        if hasattr(auth_response, 'session') and auth_response.session is None:
-                            st.markdown('<div class="warning-message">📧 Please check your email and confirm your account before signing in.</div>', unsafe_allow_html=True)
-                            st.markdown('<div class="info-message">After confirming your email, you can sign in with your credentials.</div>', unsafe_allow_html=True)
+                        if user_profile:
+                            # Success! Store user in session and redirect
+                            st.session_state["user"] = {
+                                "id": user_profile["id"],
+                                "email": user_profile["email"],
+                                "name": user_profile["name"]
+                            }
+                            st.markdown('<div class="success-message">✅ Welcome back! Redirecting...</div>', unsafe_allow_html=True)
+                            st.switch_page("pages/user_portal.py")
                         else:
-                            # Create user row if not exists — use admin to check/insert
-                            try:
-                                created = db_manager.create_user_if_not_exists(user_id=user_id, name=name, email=email)
-                                
-                                if created:
-                                    # Save session state and proceed
-                                    st.markdown('<div class="success-message">✅ Account created successfully! Welcome to Gita Guru.</div>', unsafe_allow_html=True)
-                                    st.session_state["user"] = {"id": created["id"], "email": email, "name": name}
-                                    
-                                    st.switch_page("pages/user_portal.py")
-                                    st.rerun()
-                                else:
-                                    st.markdown('<div class="error-message">❌ User profile creation failed. Please try again.</div>', unsafe_allow_html=True)
-                            except Exception as db_error:
-                                st.markdown(f'<div class="error-message">❌ Database error: {str(db_error)}</div>', unsafe_allow_html=True)
+                            st.markdown('<div class="error-message">❌ Failed to load user profile</div>', unsafe_allow_html=True)
                     else:
-                        st.markdown('<div class="error-message">❌ Sign up failed. Please try again.</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="error-message">❌ Authentication failed</div>', unsafe_allow_html=True)
+
                 except Exception as e:
-                    st.markdown(f'<div class="error-message">❌ Sign up failed: {str(e)}</div>', unsafe_allow_html=True)
-    
+                    error_message = str(e).lower()
+                    if "invalid" in error_message or "credential" in error_message:
+                        st.markdown('<div class="error-message">❌ Invalid email or password. Please check your credentials.</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="info-message">💡 Don\'t have an account? Click "Sign Up" above to create one.</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="error-message">❌ Sign in error: {str(e)}</div>', unsafe_allow_html=True)
+
+    # SIGN UP TAB
+    else:
+        st.markdown("### Join the Journey! 🌟")
+        st.markdown("Create your account to begin learning")
+
+        with st.form("signup_form", clear_on_submit=True):
+            name = st.text_input("👤 Full Name", placeholder="Enter your full name")
+            email = st.text_input("📧 Email", placeholder="Enter your email address")
+            password = st.text_input("🔒 Password", type="password", placeholder="Create a password (min 6 characters)")
+            confirm_password = st.text_input("🔒 Confirm Password", type="password", placeholder="Confirm your password")
+            signup_button = st.form_submit_button("🎯 Create Account", use_container_width=True)
+
+        if signup_button:
+            if not all([name, email, password, confirm_password]):
+                st.markdown('<div class="error-message">❌ Please fill in all fields</div>', unsafe_allow_html=True)
+            elif password != confirm_password:
+                st.markdown('<div class="error-message">❌ Passwords do not match</div>', unsafe_allow_html=True)
+            elif len(password) < 6:
+                st.markdown('<div class="error-message">❌ Password must be at least 6 characters long</div>', unsafe_allow_html=True)
+            else:
+                try:
+                    # Create user account
+                    response = supabase.auth.sign_up({
+                        "email": email,
+                        "password": password
+                    })
+
+                    if response and response.user:
+                        user_id = response.user.id
+
+                        # Create user profile immediately
+                        user_profile = db_manager.create_user_if_not_exists(
+                            user_id=user_id,
+                            name=name,
+                            email=email
+                        )
+
+                        if user_profile:
+                            # Success! Store user in session and redirect
+                            st.session_state["user"] = {
+                                "id": user_profile["id"],
+                                "email": user_profile["email"],
+                                "name": user_profile["name"]
+                            }
+                            st.markdown('<div class="success-message">✅ Account created successfully! Welcome to Gita Guru!</div>', unsafe_allow_html=True)
+                            st.switch_page("pages/user_portal.py")
+                        else:
+                            st.markdown('<div class="error-message">❌ Failed to create user profile</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown('<div class="error-message">❌ Account creation failed</div>', unsafe_allow_html=True)
+
+                except Exception as e:
+                    error_message = str(e).lower()
+                    if "already registered" in error_message or "email" in error_message and "exists" in error_message:
+                        st.markdown('<div class="error-message">❌ This email is already registered. Please sign in instead.</div>', unsafe_allow_html=True)
+                        st.markdown('<div class="info-message">💡 Already have an account? Click "Sign In" above.</div>', unsafe_allow_html=True)
+                    else:
+                        st.markdown(f'<div class="error-message">❌ Sign up error: {str(e)}</div>', unsafe_allow_html=True)
+
     st.markdown('</div>', unsafe_allow_html=True)
 
 # Features section
